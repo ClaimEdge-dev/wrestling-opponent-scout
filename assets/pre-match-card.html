@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Opponent Scouting Card</title>
+<style>
+:root{--bg:#0f1729;--card:#1e293b;--accent:#3b82f6;--green:#22c55e;--red:#ef4444;--yellow:#f59e0b;--text:#f1f5f9;--muted:#94a3b8}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);padding:10px;max-width:420px;margin:0 auto}
+.card{background:var(--card);border-radius:12px;padding:16px;margin-bottom:12px}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.name{font-size:1.4rem;font-weight:700}
+.tier{font-size:.75rem;padding:4px 10px;border-radius:20px;text-transform:uppercase;font-weight:600}
+.tier-ELITE{background:#7c3aed;color:#fff}.tier-NATIONAL{background:#2563eb;color:#fff}
+.tier-STATE{background:#059669;color:#fff}.tier-REGIONAL{background:#d97706;color:#fff}
+.tier-LOCAL{background:#6b7280;color:#fff}.tier-UNKNOWN{background:#374151;color:#9ca3af}
+.info-row{display:flex;justify-content:space-between;margin:6px 0;font-size:.9rem}
+.label{color:var(--muted)}.value{font-weight:600}
+.prob-bar{height:28px;background:#334155;border-radius:8px;overflow:hidden;margin:8px 0;position:relative}
+.prob-fill{height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.85rem;transition:width .5s}
+.prob-green{background:var(--green);color:#000}.prob-yellow{background:var(--yellow);color:#000}
+.prob-red{background:var(--red);color:#fff}
+.strategy-box{background:#0f1729;border-radius:8px;padding:12px;margin-top:10px}
+.strategy-box h4{color:var(--accent);margin-bottom:6px;font-size:.85rem;text-transform:uppercase}
+.strategy-box p,.strategy-box li{font-size:.85rem;line-height:1.5;color:var(--muted)}
+.strategy-box ul{margin-left:16px}
+.cues{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.cue-tag{font-size:.75rem;padding:4px 10px;border-radius:20px;background:#1e3a5f;color:#93c5fd;border:1px solid #3b82f6}
+input,textarea,select{width:100%;padding:8px 12px;border-radius:6px;border:1px solid #334155;background:#0f1729;color:var(--text);margin:4px 0;font-family:inherit}
+button{background:var(--accent);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-weight:600;margin-top:8px}
+button:hover{opacity:.9}
+.footer-note{font-size:.75rem;color:var(--muted);text-align:center;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <div class="name" id="oppName">Opponent Name</div>
+    <div class="tier tier-UNKNOWN" id="oppTier">UNKNOWN</div>
+  </div>
+  <div class="info-row"><span class="label">Team</span><span class="value" id="oppTeam">-</span></div>
+  <div class="info-row"><span class="label">State</span><span class="value" id="oppState">-</span></div>
+  <div class="info-row"><span class="label">Weight</span><span class="value" id="oppWeight">-</span></div>
+  <div class="info-row"><span class="label">Record</span><span class="value" id="oppRecord">-</span></div>
+  <div class="info-row"><span class="label">EGO Rating</span><span class="value" id="oppEgo">1500</span></div>
+</div>
+
+<div class="card">
+  <div class="header"><div class="name" style="font-size:1.1rem">Win Probability</div></div>
+  <div class="prob-bar"><div class="prob-fill prob-yellow" id="winProbBar" style="width:50%">50%</div></div>
+  <div class="info-row"><span class="label">Confidence</span><span class="value" id="confidence">MEDIUM</span></div>
+  <div class="info-row"><span class="label">Upset Risk</span><span class="value" id="upsetRisk" style="color:var(--yellow)">MODERATE</span></div>
+</div>
+
+<div class="card">
+  <div class="header"><div class="name" style="font-size:1.1rem">Four-Pillar Breakdown</div></div>
+  <div class="info-row"><span class="label">P1 Result Strength</span><span class="value" id="p1">-</span></div>
+  <div class="info-row"><span class="label">P2 Style Profile</span><span class="value" id="p2">-</span></div>
+  <div class="info-row"><span class="label">P3 Competition Level</span><span class="value" id="p3">-</span></div>
+  <div class="info-row"><span class="label">P4 Weight Fit</span><span class="value" id="p4">-</span></div>
+</div>
+
+<div class="card">
+  <div class="strategy-box">
+    <h4>Game Plan</h4>
+    <textarea id="gamePlan" rows="3" placeholder="Enter game plan notes..."></textarea>
+  </div>
+  <div class="strategy-box">
+    <h4>Red Flags</h4>
+    <textarea id="redFlags" rows="2" placeholder="Enter red flags..."></textarea>
+  </div>
+  <div class="strategy-box">
+    <h4>Corner Cues</h4>
+    <div class="cues" id="cornerCues">
+      <span class="cue-tag">Hand fight</span>
+      <span class="cue-tag">Level change</span>
+      <span class="cue-tag">Move feet</span>
+    </div>
+    <input type="text" id="newCue" placeholder="Add cue..." onkeypress="if(event.key==='Enter')addCue()">
+  </div>
+  <button onclick="saveCard()">Save Card</button>
+</div>
+
+<div class="footer-note">Auto-saves to localStorage. Print-ready. Data persists offline.</div>
+
+<script>
+const cardData = JSON.parse(localStorage.getItem('scoutCard') || '{}');
+if(cardData.oppName) document.getElementById('oppName').textContent = cardData.oppName;
+if(cardData.oppTeam) document.getElementById('oppTeam').textContent = cardData.oppTeam;
+if(cardData.gamePlan) document.getElementById('gamePlan').value = cardData.gamePlan;
+if(cardData.redFlags) document.getElementById('redFlags').value = cardData.redFlags;
+
+function saveCard() {
+  const data = {
+    oppName: document.getElementById('oppName').textContent,
+    oppTeam: document.getElementById('oppTeam').textContent,
+    gamePlan: document.getElementById('gamePlan').value,
+    redFlags: document.getElementById('redFlags').value,
+    savedAt: new Date().toISOString()
+  };
+  localStorage.setItem('scoutCard', JSON.stringify(data));
+  alert('Card saved!');
+}
+function addCue() {
+  const input = document.getElementById('newCue');
+  if(!input.value.trim()) return;
+  const span = document.createElement('span');
+  span.className = 'cue-tag';
+  span.textContent = input.value.trim();
+  document.getElementById('cornerCues').appendChild(span);
+  input.value = '';
+}
+function setProb(pct) {
+  const bar = document.getElementById('winProbBar');
+  bar.style.width = pct + '%';
+  bar.textContent = pct + '%';
+  bar.className = 'prob-fill ' + (pct >= 60 ? 'prob-green' : pct >= 40 ? 'prob-yellow' : 'prob-red');
+}
+</script>
+</body>
+</html>
