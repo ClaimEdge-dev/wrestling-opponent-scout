@@ -9,13 +9,14 @@ Usage:
     USABRACKETING_PASSWORD="mypassword" python scrape-usa-bracketing.py --event <uuid> --weight 80
 
 Environment Variables:
-    USABRACKETING_USERNAME - defaults to "chasekrapil"
+    USABRACKETING_USERNAME - defaults to "krapilbobby@gmail.com"
     USABRACKETING_PASSWORD - required
 """
 
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from urllib.parse import urljoin
@@ -30,13 +31,43 @@ EVENT_URL_TEMPLATE = f"{BASE_URL}/events/{{event_id}}"
 BRACKET_URL_TEMPLATE = f"{BASE_URL}/events/{{event_id}}/brackets"
 
 # Credentials from environment
-USERNAME = os.environ.get("USABRACKETING_USERNAME", "chasekrapil")
+# USA Bracketing uses EMAIL as login field, not username
+USERNAME = os.environ.get("USABRACKETING_USERNAME", "krapilbobby@gmail.com")
 PASSWORD = os.environ.get("USABRACKETING_PASSWORD", "")
+
+# Chase's wrestler profile info (for filtering)
+CHASE_PROFILE = {
+    "usaw_id": "2401891901",
+    "username": "Chasekrapil",
+    "first_name": "Chase",
+    "last_name": "Krapil",
+    "dob": "2015-09-06",
+    "division": "Open 10 and Under",
+    "division_uuid": "12753c18-2ffb-416c-abc0-95701ac3c8d7",
+}
 
 # Known event UUIDs
 KNOWN_EVENTS = {
+    "rumble-2026-individual": "f5f0a32a-d13d-4973-b124-cd2b18f0a17c",
+    "rumble-2026-duals": "08d86a57-5b8d-4f1c-9efb-90065573c46f",
+    # Legacy aliases
     "rumble-2026-primary": "f5f0a32a-d13d-4973-b124-cd2b18f0a17c",
     "rumble-2026-secondary": "08d86a57-5b8d-4f1c-9efb-90065573c46f",
+}
+
+# Weight class UUIDs for Open 10 and Under
+WEIGHT_CLASSES_10U = {
+    "37-40": "ae668892-9aca-4b8b-b753-4bf5c69b1a49",
+    "43": "45714c48-ef66-4d49-8fe0-45ddb3b78558",
+    "46": "736c892b-9d6a-4e35-b4ed-dc5ea4971924",
+    "49": "02e14a71-a2e6-481c-8401-ca9549d159ca",
+    "52": "2b4b7c0f-8c82-45ca-b5ce-474a2b62fcc2",
+    "55": "66ec57f3-4378-4978-8568-cce156279ca2",
+    "58": "632d5f7a-3055-4107-926d-4a55a857ce37",
+    "64": "c1d6dde9-9c9c-457e-a0fb-29bb03b7d794",
+    "64-72": "c9520ff1-a057-4709-9c57-4fc5e0bd1794",
+    "72": "a784135d-00b4-454c-8704-7ab20c58eb7e",
+    "92": "541061d5-6f94-4f91-8ee4-0d4e2c140f93",
 }
 
 
@@ -54,38 +85,61 @@ def get_credentials():
 
 
 def login(session, username, password):
-    """Login to USA Bracketing and return authenticated session."""
+    """Login to USA Bracketing and return authenticated session.
+    
+    USA Bracketing uses 'login' field (email), not 'username'.
+    CSRF token (_token) is required.
+    """
     print(f"[*] Logging into USA Bracketing as {username}...")
     
-    # Step 1: Get login page (extract CSRF token if needed)
+    # Step 1: Get login page to extract CSRF token
     resp = session.get(LOGIN_URL)
     soup = BeautifulSoup(resp.text, 'html.parser')
     
-    # Step 2: Find login form fields
-    login_data = {
-        'username': username,
-        'password': password,
-    }
+    # Extract CSRF token
+    csrf_input = soup.find('input', {'name': '_token'})
+    if not csrf_input:
+        print("[X] Could not find CSRF token on login page")
+        return False
     
-    # Check for remember me checkbox
-    remember = soup.find('input', {'name': 'remember'})
-    if remember:
-        login_data['remember'] = 'on'
+    csrf_token = csrf_input.get('value', '')
+    
+    # Step 2: Build login payload
+    # USA Bracketing uses 'login' field for email/username
+    login_data = {
+        '_token': csrf_token,
+        'login': username,
+        'password': password,
+        'remember': 'on'
+    }
     
     # Step 3: Submit login
     resp = session.post(LOGIN_URL, data=login_data, allow_redirects=True)
     
     # Step 4: Verify login
-    if 'login' in resp.url.lower() and resp.status_code == 200:
-        # Check for error message
+    if resp.url == LOGIN_URL or 'login' in resp.url.lower():
+        # Still on login page - check for error
         soup = BeautifulSoup(resp.text, 'html.parser')
+        
+        # Check for Swal (SweetAlert) error messages in scripts
+        for script in soup.find_all('script'):
+            if script.string and 'Swal.fire' in script.string:
+                match = re.search(r'title:\s*"([^"]+)"', script.string)
+                if match:
+                    print(f"[X] Login failed: {match.group(1)}")
+                    return False
+        
+        # Check for error divs
         error = soup.find('div', class_='alert-danger') or soup.find('div', class_='error')
         if error:
             print(f"[X] Login failed: {error.get_text(strip=True)}")
             return False
+        
+        print("[X] Login failed: Still on login page (unknown error)")
+        return False
     
     if resp.status_code == 200:
-        print("[+] Login successful!")
+        print(f"[+] Login successful! Redirected to: {resp.url}")
         return True
     else:
         print(f"[X] Login failed: HTTP {resp.status_code}")
@@ -161,8 +215,8 @@ def save_to_neon(bracket_data):
 
 def main():
     parser = argparse.ArgumentParser(description="USA Bracketing Scraper")
-    parser.add_argument("--event", required=True, help="Event UUID or alias (rumble-2026-primary, rumble-2026-secondary)")
-    parser.add_argument("--weight", type=int, help="Weight class to extract (e.g., 75, 80)")
+    parser.add_argument("--event", required=True, help="Event UUID or alias (rumble-2026-individual, rumble-2026-duals)")
+    parser.add_argument("--weight", type=int, help="Weight class to extract (e.g., 72, 92)")
     parser.add_argument("--all-weights", action="store_true", help="Extract all weight classes")
     parser.add_argument("--output", default="bracket_data.json", help="Output file")
     parser.add_argument("--save-db", action="store_true", help="Save to Neon database")
